@@ -36,3 +36,4 @@ Abrí `index.html` con doble clic. Funciona sin internet.
 
 - Esto es un prototipo funcional: las cuentas y los datos viven solo en el dispositivo y navegador donde se crearon. Si se borra el historial del navegador, se pierden.
 - Para una app real con cuentas en la nube (y que los datos del ciclo estén protegidos), el siguiente paso es conectar Supabase, como vimos en el esquema de base de datos.
+o
