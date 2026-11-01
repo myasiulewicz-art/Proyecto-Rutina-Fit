@@ -1,5 +1,5 @@
 /* Rutina Fit — app web (HTML + CSS + JS puros).
-   Los datos se guardan en el navegador (localStorage). No hay servidor. */
+   Las cuentas y los datos se guardan en la nube con Supabase (Authentication + base de datos). */
 (() => {
   'use strict';
 
@@ -76,19 +76,21 @@
     logout: svg('<path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M16 8l4 4-4 4M20 12H9"/>', 2.2),
   };
 
-  /* =====================  ESTADO Y ALMACENAMIENTO  ===================== */
-  const KEY = 'rutinafit:v2';
-  const blank = () => ({ users: {}, data: {}, session: null });
-  let db = load();
-  function load() {
-    try { const j = JSON.parse(localStorage.getItem(KEY) || 'null'); return j && j.users ? j : blank(); } catch { return blank(); }
-  }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sin almacenamiento */ } }
+  /* =====================  ESTADO  ===================== */
+  // Datos de conexión de Supabase. La clave "publishable" es pública por diseño:
+  // lo que protege los datos son las reglas de seguridad (RLS) de la base.
+  const SUPABASE_URL = 'https://ukrgvtililjozyzwooie.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_wJfUcKd-pXpmaXJMdwP4yA_ospcOjFf';
+
+  let sb = null;        // cliente de Supabase
+  let listo = false;    // true cuando ya se revisó si hay una sesión abierta
+  const vacio = () => ({ session: null, uid: null, users: {}, data: {} });
+  let db = vacio();     // copia en memoria de los datos de la usuaria; la base de datos es la fuente real
   const D = () => (db.session ? db.data[db.session] : null);
   const U = () => (db.session ? db.users[db.session] : null);
   const newData = () => ({ profile: { peso: '', objetivo: '', inicio: '' }, dias: [], rutina: null, ciclo: {}, hechos: {}, completo: false });
 
-  // Estado de pantalla (no se guarda)
+  // Estado de pantalla (no se guarda en ningún lado)
   const ui = {
     loginErr: null, loginVals: { mail: '', pass: '' }, regErr: {}, regVals: { nombre: '', mail: '', pass: '' },
     verPass: false, datosErr: {}, pesoTmp: null,
@@ -109,10 +111,6 @@
   const lunesISO = () => { const d = hoy(); d.setDate(d.getDate() - wdow(d)); return iso(d); };
   const proxLunes = () => { const d = hoy(); const w = wdow(d); if (w) d.setDate(d.getDate() + (7 - w)); return d; };
   const emailOk = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-  async function hash(t) {
-    try { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join(''); }
-    catch { return 'b64:' + btoa(unescape(encodeURIComponent(t))); }
-  }
   const go = p => { if (location.hash === '#/' + p) route(); else location.hash = '#/' + p; };
 
   const datosOk = () => { const p = D().profile; return !!(p.peso && p.objetivo && p.inicio); };
@@ -127,6 +125,153 @@
   const nEj = n => `${n} ${n === 1 ? 'ejercicio' : 'ejercicios'}`;
   const resumen = it => { const e = ex(it.id); return it.series + (e.u === 's' ? ` series · ${it.v} segundos` : ` series · ${it.v} repeticiones`); };
   const corto = it => { const e = ex(it.id); return `${it.series} × ${it.v}${e.u === 's' ? ' seg' : ''}`; };
+
+  /* =====================  BASE DE DATOS (Supabase)  ===================== */
+  const MSG_RED = 'No pudimos conectarnos. Revisá tu conexión e intentá de nuevo.';
+  const esRed = e => !!e && /failed to fetch|networkerror|load failed|network request failed|fetch failed/i.test(String(e.message || e));
+  const ver = r => { if (r && r.error) throw r.error; return r ? r.data : null; };   // lanza el error si la consulta falló
+  const ocupado = (form, on) => { const b = form && form.querySelector('button[type=submit]'); if (b && b.isConnected) { b.disabled = on; b.setAttribute('aria-busy', on); } };
+
+  let avisoT;
+  function aviso(msg) {
+    const t = $('#aviso'); if (!t) return;
+    t.textContent = msg; t.classList.add('on');
+    clearTimeout(avisoT); avisoT = setTimeout(() => t.classList.remove('on'), 4500);
+  }
+
+  // Los cambios se guardan de a uno y en orden, sin frenar la pantalla.
+  let cola = Promise.resolve();
+  function encolar(fn) {
+    cola = cola.then(fn).catch(e => {
+      console.error(e);
+      aviso(esRed(e) ? 'No se pudo guardar: sin conexión.' : 'No se pudo guardar el último cambio. Probá de nuevo.');
+    });
+    return cola;
+  }
+
+  function guardarPerfil() {
+    return encolar(async () => {
+      const d = D(); if (!d || !db.uid) return;
+      const p = d.profile, peso = parseFloat(p.peso);
+      ver(await sb.from('perfiles').upsert({
+        id: db.uid, nombre: (U() && U().nombre) || null,
+        peso: Number.isFinite(peso) ? peso : null,
+        objetivo: p.objetivo || null, fecha_inicio: p.inicio || null, rutina_completa: !!d.completo,
+      }, { onConflict: 'id' }));
+    });
+  }
+
+  // Guarda un día de la rutina: lo crea si hace falta y reemplaza sus ejercicios.
+  async function sincDia(k) {
+    const d = D(); if (!d || !db.uid || !d.rutina || !d.rutina[k]) return;
+    const dia = d.rutina[k], semana = d.dias[k];
+    const filas = ver(await sb.from('dias_rutina').upsert({ usuaria_id: db.uid, dia_semana: semana }, { onConflict: 'usuaria_id,dia_semana' }).select('id'));
+    dia.diaId = filas[0].id;
+    ver(await sb.from('dia_ejercicios').delete().eq('dia_id', dia.diaId));
+    if (dia.items.length) {
+      ver(await sb.from('dia_ejercicios').insert(dia.items.map((it, i) => ({
+        dia_id: dia.diaId, ejercicio_id: it.id, series: it.series, valor: it.v, descanso_seg: it.rest, orden: i,
+      }))));
+    }
+  }
+  function guardarDia(k) { return encolar(() => sincDia(k)); }
+  function guardarRutina() {
+    return encolar(async () => {
+      const d = D(); if (!d || !db.uid || !d.rutina) return;
+      for (let k = 0; k < d.dias.length; k++) await sincDia(k);
+      ver(await sb.from('dias_rutina').delete().eq('usuaria_id', db.uid).not('dia_semana', 'in', `(${d.dias.join(',')})`));
+    });
+  }
+  function guardarCiclo(fecha, marcado) {
+    return encolar(async () => {
+      if (!db.uid) return;
+      if (marcado) ver(await sb.from('ciclo').upsert({ usuaria_id: db.uid, fecha }, { onConflict: 'usuaria_id,fecha' }));
+      else ver(await sb.from('ciclo').delete().eq('usuaria_id', db.uid).eq('fecha', fecha));
+    });
+  }
+  function guardarHecho(k, ejercicioId, hecho, semana) {
+    return encolar(async () => {
+      const d = D(), dia = d && d.rutina && d.rutina[k];
+      if (!db.uid || !dia || !dia.diaId) return;
+      if (hecho) ver(await sb.from('ejercicios_hechos').upsert({ usuaria_id: db.uid, semana, dia_id: dia.diaId, ejercicio_id: ejercicioId }, { onConflict: 'usuaria_id,semana,dia_id,ejercicio_id' }));
+      else ver(await sb.from('ejercicios_hechos').delete().eq('usuaria_id', db.uid).eq('semana', semana).eq('dia_id', dia.diaId).eq('ejercicio_id', ejercicioId));
+    });
+  }
+
+  // Trae de la base todo lo de la usuaria y lo deja en memoria.
+  async function cargarTodo(user) {
+    const uid = user.id, mail = (user.email || '').toLowerCase();
+    const [perf, dias, cicl, hech, cat] = await Promise.all([
+      sb.from('perfiles').select('*').eq('id', uid).maybeSingle(),
+      sb.from('dias_rutina').select('id, dia_semana, dia_ejercicios(ejercicio_id, series, valor, descanso_seg, orden)').eq('usuaria_id', uid).order('dia_semana'),
+      sb.from('ciclo').select('fecha').eq('usuaria_id', uid),
+      sb.from('ejercicios_hechos').select('semana, dia_id, ejercicio_id').eq('usuaria_id', uid),
+      sb.from('ejercicios').select('*'),
+    ]);
+    [perf, dias, cicl, hech].forEach(r => { if (r.error) throw r.error; });
+
+    // Catálogo: si la base lo devuelve, se usa ese (en el mismo orden del diseño).
+    if (!cat.error && cat.data && cat.data.length) {
+      const orden = CAT.map(e => e.id), pos = id => { const i = orden.indexOf(id); return i < 0 ? 999 : i; };
+      const nuevo = cat.data.map(e => ({ id: e.id, nombre: e.nombre, grupos: e.grupos || [], u: e.unidad, s: e.series_sug, v: e.valor_sug }));
+      nuevo.sort((a, b) => pos(a.id) - pos(b.id));
+      CAT.splice(0, CAT.length, ...nuevo);
+    }
+
+    const p = perf.data || {};
+    const nombre = p.nombre || (user.user_metadata && user.user_metadata.nombre) || '';
+    const data = newData();
+    data.profile = { peso: p.peso != null ? String(p.peso) : '', objetivo: p.objetivo || '', inicio: p.fecha_inicio || '' };
+    data.completo = !!p.rutina_completa;
+    const filas = (dias.data || []).slice().sort((a, b) => a.dia_semana - b.dia_semana);
+    if (filas.length) {
+      data.dias = filas.map(r => r.dia_semana);
+      data.rutina = filas.map(r => ({
+        diaId: r.id,
+        items: (r.dia_ejercicios || []).slice().sort((a, b) => a.orden - b.orden)
+          .filter(x => ex(x.ejercicio_id)).map(x => ({ id: x.ejercicio_id, series: x.series, v: x.valor, rest: x.descanso_seg })),
+      }));
+    }
+    (cicl.data || []).forEach(r => { data.ciclo[r.fecha] = true; });
+    const idx = {}; filas.forEach((r, k) => { idx[r.id] = k; });
+    (hech.data || []).forEach(r => {
+      if (idx[r.dia_id] === undefined) return;
+      const key = `${r.semana}:${idx[r.dia_id]}`;
+      (data.hechos[key] = data.hechos[key] || {})[r.ejercicio_id] = true;
+    });
+    db = { session: mail, uid, users: { [mail]: { nombre } }, data: { [mail]: data } };
+  }
+
+  function limpiarSesion() {
+    db = vacio();
+    ui.loginVals = { mail: '', pass: '' }; ui.regVals = { nombre: '', mail: '', pass: '' };
+    ui.loginErr = null; ui.regErr = {}; ui.tab = null; ui.cicloMes = null; ui.cfg = null; ui.diasSel = null;
+  }
+
+  const vCargando = () => `<div class="screen"><div class="body"><div class="center-col"><img class="load-logo" src="img/logo-claro.png" alt="Rutina Fit"><p class="sub c" style="margin-top:18px">Cargando…</p></div></div></div>`;
+  const vErrorCarga = red => `<div class="screen"><div class="body"><div class="center-col"><img class="load-logo" src="img/logo-claro.png" alt="Rutina Fit">
+      <h1 class="h1 c" style="margin-top:28px;font-size:24px">${red ? 'No pudimos conectarnos' : 'Algo salió mal'}</h1>
+      <p class="sub c" style="max-width:300px">${red ? 'Revisá tu conexión a internet e intentá de nuevo.' : 'No pudimos cargar tus datos. Intentá de nuevo.'}</p></div>
+      <div class="cta"><button class="btn" data-act="recargar">Reintentar</button>${red ? '' : '<button class="btn outline" data-act="salir-forzado">Cerrar sesión</button>'}</div></div></div>`;
+
+  async function iniciar() {
+    $('#view').innerHTML = vCargando();
+    let red = false;
+    try {
+      if (!window.supabase || !window.supabase.createClient) { red = true; throw new Error('Failed to fetch (librería no disponible)'); }
+      sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+      sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT' && db.session) { limpiarSesion(); go('bienvenida'); } });
+      const r = await sb.auth.getSession();
+      if (r.error) throw r.error;
+      if (r.data.session) await cargarTodo(r.data.session.user);
+    } catch (e) {
+      console.error(e);
+      $('#view').innerHTML = vErrorCarga(red || esRed(e));
+      return;
+    }
+    listo = true;
+    route();
+  }
 
   /* =====================  PIEZAS DE INTERFAZ  ===================== */
   const logoHdr = '<span class="hlogo"><img src="img/logo-claro.png" alt="Rutina Fit"></span>';
@@ -419,7 +564,7 @@
     const h = location.hash.replace(/^#\/?/, '');
     const [name, ...args] = h.split('/');
     const logged = !!db.session && !!D();
-    if (db.session && !D()) { db.session = null; save(); }
+    if (db.session && !D()) db.session = null;
 
     if (!logged) { if (!PUBLICAS.includes(name)) return go('bienvenida'); }
     else {
@@ -456,7 +601,7 @@
   function setDias(sel) {
     const d = D(); d.dias = [...sel].sort((a, b) => a - b);
     d.rutina = d.dias.map((_, k) => (d.rutina && d.rutina[k]) || { items: plantilla(k) });
-    save();
+    guardarRutina();
   }
   const limites = { series: [1, 10, 1], v: [1, 300, 1], rest: [0, 300, 5] };
 
@@ -466,18 +611,25 @@
     'menu-go'(el) { const r = el.dataset.r; cerrarCapa(); go(r); },
     'logout-ask'() { abrirLogout(); },
     'logout-no'() { cerrarCapa(); },
-    'logout-ok'() { db.session = null; save(); cerrarCapa(); go('bienvenida'); },
+    async 'logout-ok'() {
+      cerrarCapa();
+      await cola;                                   // esperar a que terminen de guardarse los cambios pendientes
+      try { await sb.auth.signOut(); } catch (e) { console.error(e); }
+      limpiarSesion(); go('bienvenida');
+    },
+    recargar() { location.reload(); },
+    async 'salir-forzado'() { try { await sb.auth.signOut(); } catch (e) { console.error(e); } limpiarSesion(); listo = true; go('bienvenida'); },
     eye() { const f = $('form'); if (f) { const v = {}; new FormData(f).forEach((x, k) => v[k] = x); if (f.dataset.form === 'login') ui.loginVals = { mail: v.mail || '', pass: v.pass || '' }; if (f.dataset.form === 'registro') ui.regVals = { nombre: v.nombre || '', mail: v.mail || '', pass: v.pass || '' }; } ui.verPass = !ui.verPass; rerender(); },
-    olvide(el, ev) { ev.preventDefault(); alert('Por ahora la contraseña no se puede recuperar desde la app, porque tus datos se guardan en este dispositivo. Si no la recordás, creá una cuenta nueva con otro Gmail.'); },
+    olvide(el, ev) { ev.preventDefault(); alert('Por ahora la contraseña no se puede recuperar desde la app. Si no la recordás, creá una cuenta nueva con otro Gmail.'); },
     ir(el) { const f = $('form'); if (f && f.dataset.form === 'datos') ui.pesoTmp = new FormData(f).get('peso') || ''; go(el.dataset.to); },
     obj(el) { ui.objSel = el.dataset.v; rerender(); },
-    'obj-guardar'(el) { if (!ui.objSel) return; D().profile.objetivo = ui.objSel; save(); ui.objSel = null; go(el.dataset.back); },
+    'obj-guardar'(el) { if (!ui.objSel) return; D().profile.objetivo = ui.objSel; guardarPerfil(); ui.objSel = null; go(el.dataset.back); },
     mes(el) {
       const dd = +el.dataset.d, k = ui.actual === 'fecha' ? 'fechaMes' : 'cicloMes';
       const b = ui[k]; ui[k] = new Date(b.getFullYear(), b.getMonth() + dd, 1); rerender();
     },
     'fecha-dia'(el) { ui.fechaSel = el.dataset.f; rerender(); },
-    'fecha-ok'(el) { if (!ui.fechaSel) return; D().profile.inicio = ui.fechaSel; save(); ui.fechaSel = null; go(el.dataset.back); },
+    'fecha-ok'(el) { if (!ui.fechaSel) return; D().profile.inicio = ui.fechaSel; guardarPerfil(); ui.fechaSel = null; go(el.dataset.back); },
     'dias-n'(el) { ui.diasSel = [...DIAS_DEFAULT[+el.dataset.n]]; rerender(); },
     'dias-t'(el) {
       const w = +el.dataset.w, s = ui.diasSel;
@@ -488,7 +640,7 @@
     'rutina-ok'() {
       const d = D();
       if (d.rutina.some(r => !r.items.length)) { ui.rutinaErr = true; return rerender(); }
-      ui.rutinaErr = false; save(); go('lista');
+      ui.rutinaErr = false; guardarRutina(); go('lista');
     },
     filtro(el) { ui.filtro = el.dataset.g; rerender(); },
     cfg(el) {
@@ -499,17 +651,17 @@
     'cfg-ok'(el) {
       const c = ui.cfg, items = D().rutina[c.k].items, it = items.find(x => x.id === c.id);
       if (it) Object.assign(it, { series: c.series, v: c.v, rest: c.rest }); else items.push({ id: c.id, series: c.series, v: c.v, rest: c.rest });
-      save(); const k = c.k; ui.cfg = null; go(el.dataset.nuevo === '1' ? `agregar/${k}` : `dia/${k}`);
+      const k = c.k; guardarDia(k); ui.cfg = null; go(el.dataset.nuevo === '1' ? `agregar/${k}` : `dia/${k}`);
     },
-    'cfg-quitar'() { const c = ui.cfg, r = D().rutina[c.k]; r.items = r.items.filter(x => x.id !== c.id); save(); const k = c.k; ui.cfg = null; go(`dia/${k}`); },
+    'cfg-quitar'() { const c = ui.cfg, r = D().rutina[c.k]; r.items = r.items.filter(x => x.id !== c.id); const k = c.k; guardarDia(k); ui.cfg = null; go(`dia/${k}`); },
     'lista-ciclo'() { go('ciclo'); },
-    'lista-ej'() { D().completo = true; save(); go('ejercicios'); },
-    'ciclo-dia'(el) { const d = D(), f = el.dataset.f; if (d.ciclo[f]) delete d.ciclo[f]; else d.ciclo[f] = true; save(); rerender(); },
-    'ciclo-ok'() { D().completo = true; save(); go('ejercicios'); },
+    'lista-ej'() { D().completo = true; guardarPerfil(); go('ejercicios'); },
+    'ciclo-dia'(el) { const d = D(), f = el.dataset.f; if (d.ciclo[f]) delete d.ciclo[f]; else d.ciclo[f] = true; guardarCiclo(f, !!d.ciclo[f]); rerender(); },
+    'ciclo-ok'() { D().completo = true; guardarPerfil(); go('ejercicios'); },
     hecho(el) {
-      const d = D(), key = `${lunesISO()}:${el.dataset.k}`, h = (d.hechos[key] = d.hechos[key] || {});
+      const d = D(), semana = lunesISO(), key = `${semana}:${el.dataset.k}`, h = (d.hechos[key] = d.hechos[key] || {});
       if (h[el.dataset.id]) delete h[el.dataset.id]; else h[el.dataset.id] = true;
-      save(); rerender();
+      guardarHecho(+el.dataset.k, el.dataset.id, !!h[el.dataset.id], semana); rerender();
     },
   };
 
@@ -540,24 +692,52 @@
       const e = {};
       if (!nombre) e.nombre = 'Escribí tu nombre completo.';
       if (!emailOk(mail)) e.mail = 'Ingresá un Gmail válido.';
-      else if (db.users[mail]) e.mail = 'Ya existe una cuenta con ese Gmail.';
       if (pass.length < 8) e.pass = 'La contraseña necesita al menos 8 caracteres.';
       ui.regErr = e;
       if (Object.keys(e).length) return rerender();
-      db.users[mail] = { nombre, pass: await hash(pass) };
-      db.data[mail] = newData();
-      db.session = mail; save(); ui.regVals = { nombre: '', mail: '', pass: '' };
-      return go('cuenta-creada');
+      ocupado(form, true);
+      try {
+        const { data, error } = await sb.auth.signUp({ email: mail, password: pass, options: { data: { nombre } } });
+        if (error) {
+          if (esRed(error)) ui.regErr = { mail: MSG_RED };
+          else if (/already|registered|exists/i.test(error.message)) ui.regErr = { mail: 'Ya existe una cuenta con ese Gmail.' };
+          else if (/rate|limit|too many/i.test(error.message)) ui.regErr = { mail: 'Hiciste muchos intentos. Esperá unos minutos y probá de nuevo.' };
+          else if (/password/i.test(error.message)) ui.regErr = { pass: 'Esa contraseña no es válida. Probá con otra más larga.' };
+          else ui.regErr = { mail: 'No pudimos crear la cuenta. Probá de nuevo.' };
+          return rerender();
+        }
+        if (!data.session) { ui.regErr = { mail: 'Te enviamos un mail para confirmar tu cuenta. Confirmalo y después iniciá sesión.' }; return rerender(); }
+        await cargarTodo(data.user);
+        ui.regVals = { nombre: '', mail: '', pass: '' };
+        return go('cuenta-creada');
+      } catch (er) {
+        console.error(er);
+        ui.regErr = { mail: esRed(er) ? MSG_RED : 'No pudimos crear la cuenta. Probá de nuevo.' };
+        return rerender();
+      } finally { ocupado(form, false); }
     }
     if (tipo === 'login') {
       const mail = (f.mail || '').trim().toLowerCase(), pass = f.pass || '';
       ui.loginVals = { mail: f.mail || '', pass };
-      const u = db.users[mail];
       if (!emailOk(mail)) { ui.loginErr = { tipo: 'mail', msg: 'Ingresá un Gmail válido.' }; return rerender(); }
-      if (!u) { ui.loginErr = { tipo: 'mail', msg: 'No encontramos una cuenta con ese Gmail.' }; return rerender(); }
-      if (u.pass !== await hash(pass)) { ui.loginErr = { tipo: 'pass', msg: 'La contraseña no es correcta. Probá de nuevo.' }; return rerender(); }
-      db.session = mail; save(); ui.loginErr = null; ui.loginVals = { mail: '', pass: '' };
-      return go(home());
+      if (!pass) { ui.loginErr = { tipo: 'pass', msg: 'Escribí tu contraseña.' }; return rerender(); }
+      ocupado(form, true);
+      try {
+        const { data, error } = await sb.auth.signInWithPassword({ email: mail, password: pass });
+        if (error) {
+          if (esRed(error)) { aviso(MSG_RED); return; }
+          ui.loginErr = /confirm/i.test(error.message)
+            ? { tipo: 'mail', msg: 'Todavía tenés que confirmar tu Gmail. Revisá tu correo.' }
+            : { tipo: 'pass', msg: 'El Gmail o la contraseña no son correctos. Probá de nuevo.' };
+          return rerender();
+        }
+        try { await cargarTodo(data.user); }
+        catch (er) { console.error(er); try { await sb.auth.signOut(); } catch (x) { /* nada */ } aviso(esRed(er) ? MSG_RED : 'No pudimos cargar tus datos. Probá de nuevo.'); return; }
+        ui.loginErr = null; ui.loginVals = { mail: '', pass: '' };
+        return go(home());
+      } catch (er) {
+        console.error(er); aviso(esRed(er) ? MSG_RED : 'No pudimos iniciar sesión. Probá de nuevo.');
+      } finally { ocupado(form, false); }
     }
     if (tipo === 'datos') {
       const edit = form.dataset.edit === '1', p = D().profile, e = {};
@@ -568,13 +748,12 @@
       if (!p.inicio) e.inicio = 'Elegí una fecha de inicio.';
       ui.datosErr = e;
       if (Object.keys(e).length) return rerender();
-      p.peso = String(peso); save();
+      p.peso = String(peso); guardarPerfil();
       ui.pesoTmp = null; ui.datosErr = {};
       return go(edit ? 'perfil' : 'dias');
     }
   });
 
-  window.addEventListener('hashchange', route);
-  window.addEventListener('storage', ev => { if (ev.key === KEY) { db = load(); route(); } });
-  route();
+  window.addEventListener('hashchange', () => { if (listo) route(); });
+  iniciar();
 })();

@@ -287,3 +287,15 @@ img, svg { display: block; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 @media (max-height: 700px) { :root { --hdr: 92px; } .hdr .hlogo, .menu-top .hlogo { top: 46px; } .ib { top: 40px; } }
+
+/* ---------- Conexión con la base de datos ---------- */
+.btn:disabled { opacity: .6; cursor: default; transform: none; }
+.load-logo { width: 150px; height: auto; }
+.aviso {
+  position: fixed; left: 50%; bottom: 24px; z-index: 60;
+  transform: translate(-50%, 160%); transition: transform .25s;
+  width: max-content; max-width: min(360px, calc(100vw - 32px));
+  background: var(--dark); color: var(--white); border-radius: 16px; padding: 14px 18px;
+  font-weight: 700; font-size: 14px; line-height: 1.35; text-align: center;
+}
+.aviso.on { transform: translate(-50%, 0); }
