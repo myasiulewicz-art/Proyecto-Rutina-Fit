@@ -1,41 +1,59 @@
-# Rutina Fit
+# RUTINA FIT:
+Aplicación web de entrenamiento pensada para mujeres. Permite armar una rutina semanal de 1 a 7 días, cargar los ejercicios de cada día, hacer el seguimiento de lo entrenado y registrar los días del ciclo menstrual. Pensada únicamente para usarla desde el celular.
 
-App web de entrenamiento para mujeres, construida a partir de las 23 pantallas del diseño de Figma (402 x 874).
-HTML, CSS y JavaScript puros: no hay que instalar nada.
+**Autora:** Milagros Yasiulewicz
 
-Flujo: bienvenida, iniciar sesión, registro, cuenta creada, tus datos (peso, objetivo, fecha de inicio),
-días por semana, armar rutina por día, agregar y configurar ejercicios, rutina lista, ciclo,
-mis ejercicios, perfil, menú y cierre de sesión.
+**Materia:** Desarrollo de Aplicaciones Web
 
-## Estructura
+**Ver la aplicación:** https://myasiulewicz-art.github.io/NOMBRE-DEL-REPOSITORIO/
 
-```
-index.html
+## QUÉ HACE LA APP:
+
+**Crear una cuenta e iniciar sesión**, con avisos claros cuando algo no coincide (por ejemplo, una contraseña incorrecta).
+**Completar los datos personales**: peso, objetivo (tonificar, bajar de peso, ganar fuerza, entre otros) y fecha de inicio en un calendario.
+**Elegir cuántos días entrenar por semana**, de 1 a 7, o marcar cada día de la lista.
+**Armar la rutina día por día**: ver los ejercicios cargados, agregar nuevos desde un catálogo con buscador y filtros por grupo muscular, y configurar series, repeticiones y descanso.
+**Marcar los ejercicios hechos** y ver el progreso del día.
+**Registrar el ciclo** tocando en un calendario los días del período del mes corriente.
+**Ver y editar el perfil** y cerrar sesión desde el menú.
+
+## RECORRIDO DE LAS PANTALLAS:
+El diseño se hizo en Figma (iPhone 17, 402 x 874 px) y la aplicación contiene 23 pantallas.
+
+**Etapa y Pantallas:**
+- Ingreso => Bienvenida, Iniciar sesión, Iniciar sesión con error, Registro, Cuenta creada
+- Tus datos => Tus datos, Objetivo, Fecha de inicio
+- Tu rutina => Días por semana, Armar rutina, Ejercicios de los días elegidos para entrenar, Agregar ejercicio, Configurar ejercicio, Rutina lista
+- Uso diario => Mis ejercicios, Mi ciclo, Ciclo marcado, Perfil 
+- Menú => Menú y confirmación de cierre de sesión 
+
+## IDENTIDAD VISUAL:
+
+**Tipografía:** Montserrat, en sus pesos Medium, Bold y ExtraBold (con cursiva en los títulos).
+
+**Paleta de colores**
+Color, Código, Uso:
+
+- Violeta oscuro => #370184 => Textos, fondos de contraste y botones principales
+- Violeta => #8941ee => Botones, selecciones y elementos activos 
+- Rosa => #fd34ac => Ciclo, avisos de error y barras de avance 
+- Naranja => #fc8454 => Detalles y cierre de sesión 
+- Blanco => #ffffff => Fondos 
+
+El logotipo tiene tres versiones: completa con la figura (pantalla de bienvenida) y dos solo de texto (violeta claro y violeta oscuro).
+
+## CÓMO ESTÁ HECHA:
+Está programada con HTML, CSS y JavaScript, sin librerías externas ni instalación.
+
+index.html => estructura de la página
+css/styles.css => estilos del diseño
+js/app.js => pantallas y funcionamiento
+img/ => logotipos e íconos
 manifest.webmanifest
-css/styles.css
-js/app.js
-img/            logos (claro, oscuro, completo) e íconos
-```
 
-## Publicar en GitHub Pages
+Se publica con GitHub Pages.
 
-1. Subí el CONTENIDO de la carpeta (no la carpeta en sí) a la raíz del repositorio.
-   `index.html` tiene que quedar en la raíz. Si ya había archivos con el mismo nombre, reemplazalos.
-2. Settings > Pages > Deploy from a branch > main > / (root).
-3. Esperá uno o dos minutos y abrí `https://TU-USUARIO.github.io/NOMBRE-DEL-REPO/`.
+## ALCANCE DE ESTA VERSIÓN:
+Es un prototipo funcional. Las cuentas, la rutina y los datos del ciclo se guardan **solo en el navegador del dispositivo** donde se usa la aplicación. No se envían a ningún servidor, y al borrar los datos del navegador se pierden.
 
-## Tipografía
-
-Montserrat (500, 600, 700, 800 y cursivas 700 y 800) se carga desde Google Fonts, por lo que necesita internet.
-Para usarla sin conexión, descargá los archivos desde fonts.google.com y declaralos con `@font-face` en `css/styles.css`.
-
-## Colores
-
-`#370184` oscuro, `#8941ee` violeta, `#fd34ac` rosa, `#fc8454` naranja, `#ffffff` blanco.
-Están al inicio de `css/styles.css`.
-
-## Importante
-
-Los datos (cuentas, rutina, ciclo) se guardan solo en el navegador de cada persona (`localStorage`).
-Es un prototipo funcional. Para una app real con cuentas en la nube hay que conectar una base de datos
-(por ejemplo Supabase, con el esquema que armamos antes).
+Próximo paso: conectar una base de datos en la nube para que la cuenta y la rutina estén disponibles desde cualquier dispositivo, con protección de los datos del ciclo. El esquema de tablas ya está definido (usuarias, ejercicios, planes, días del plan, ejercicios de cada día y ciclo).
