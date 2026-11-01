@@ -46,7 +46,7 @@ Color, Código, Uso:
 
 
 CÓMO ESTÁ HECHA:
-Está programada con HTML, CSS y JavaScript, sin librerías externas ni instalación.
+Está programada con HTML, CSS y JavaScript, sin instalación.
 
 index.html => estructura de la página
 css/styles.css => estilos del diseño
