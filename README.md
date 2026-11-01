@@ -1,39 +1,41 @@
-# Rutina Fit 💜
+# Rutina Fit
 
-App web de entrenamiento para mujeres: plan de 1 a 7 días por semana, catálogo de ejercicios, entrenamiento con descansos, calendario de ciclo, perfil y progreso.
+App web de entrenamiento para mujeres, construida a partir de las 23 pantallas del diseño de Figma (402 x 874).
+HTML, CSS y JavaScript puros: no hay que instalar nada.
 
-Hecha con HTML, CSS y JavaScript puros (sin instalar nada). Los datos se guardan en el navegador de cada persona (`localStorage`), no hay servidor.
+Flujo: bienvenida, iniciar sesión, registro, cuenta creada, tus datos (peso, objetivo, fecha de inicio),
+días por semana, armar rutina por día, agregar y configurar ejercicios, rutina lista, ciclo,
+mis ejercicios, perfil, menú y cierre de sesión.
 
 ## Estructura
 
 ```
-rutina-fit-web/
-├── index.html
-├── css/styles.css
-├── js/app.js
-└── README.md
+index.html
+manifest.webmanifest
+css/styles.css
+js/app.js
+img/            logos (claro, oscuro, completo) e íconos
 ```
 
-## Publicarla en GitHub Pages
+## Publicar en GitHub Pages
 
-1. Entrá a github.com y creá un repositorio nuevo (por ejemplo `rutina-fit`), público.
-2. Tocá **uploading an existing file** y arrastrá **el contenido** de la carpeta (`index.html`, `css`, `js`, `README.md`). `index.html` tiene que quedar en la raíz del repositorio.
-3. Tocá **Commit changes**.
-4. Andá a **Settings → Pages**. En *Build and deployment* elegí **Deploy from a branch**, rama **main** y carpeta **/(root)**. Guardá.
-5. Esperá 1 o 2 minutos. Tu página va a estar en `https://TU-USUARIO.github.io/rutina-fit/`.
+1. Subí el CONTENIDO de la carpeta (no la carpeta en sí) a la raíz del repositorio.
+   `index.html` tiene que quedar en la raíz. Si ya había archivos con el mismo nombre, reemplazalos.
+2. Settings > Pages > Deploy from a branch > main > / (root).
+3. Esperá uno o dos minutos y abrí `https://TU-USUARIO.github.io/NOMBRE-DEL-REPO/`.
 
-## Probarla en tu compu
+## Tipografía
 
-Abrí `index.html` con doble clic. Funciona sin internet.
+Montserrat (500, 600, 700, 800 y cursivas 700 y 800) se carga desde Google Fonts, por lo que necesita internet.
+Para usarla sin conexión, descargá los archivos desde fonts.google.com y declaralos con `@font-face` en `css/styles.css`.
 
-## Personalizar
+## Colores
 
-- **Colores**: están al inicio de `css/styles.css` (variables `--p900`, `--p500`, `--pink`, `--orange`).
-- **Logotipo**: ahora es texto. Para usar tu logo, guardalo en una carpeta `assets/` y en `js/app.js` reemplazá la función `logo()` por una etiqueta `<img src="assets/logo.svg" alt="Rutina Fit">`.
-- **Ejercicios**: se agregan en la lista `EJ` al inicio de `js/app.js`.
+`#370184` oscuro, `#8941ee` violeta, `#fd34ac` rosa, `#fc8454` naranja, `#ffffff` blanco.
+Están al inicio de `css/styles.css`.
 
 ## Importante
 
-- Esto es un prototipo funcional: las cuentas y los datos viven solo en el dispositivo y navegador donde se crearon. Si se borra el historial del navegador, se pierden.
-- Para una app real con cuentas en la nube (y que los datos del ciclo estén protegidos), el siguiente paso es conectar Supabase, como vimos en el esquema de base de datos.
-o
+Los datos (cuentas, rutina, ciclo) se guardan solo en el navegador de cada persona (`localStorage`).
+Es un prototipo funcional. Para una app real con cuentas en la nube hay que conectar una base de datos
+(por ejemplo Supabase, con el esquema que armamos antes).
