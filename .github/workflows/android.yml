@@ -1,0 +1,47 @@
+name: Armar APK de Android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Instalar Capacitor
+        run: npm install
+
+      - name: Copiar la web a la carpeta www
+        run: |
+          mkdir -p www
+          cp -r index.html css js img manifest.webmanifest www/
+
+      - name: Crear el proyecto de Android
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Compilar la APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Guardar la APK para descargar
+        uses: actions/upload-artifact@v4
+        with:
+          name: rutina-fit-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
